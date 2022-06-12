@@ -226,5 +226,10 @@ async def verify(ctx: Context):
     await attempt_to_start_vote(ctx)
 
 
-load_dotenv()
-client.run(os.getenv("DISCORD_TOKEN"))
+def main():
+    load_dotenv()
+    client.run(os.getenv("DISCORD_TOKEN"))
+
+
+if __name__ == "__main__":
+    main()
