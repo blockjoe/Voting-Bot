@@ -36,15 +36,14 @@ class VoteBase(BaseModel):
     start_time: datetime.datetime
     days: int
     vouches_required: int
+    votes: int = 0
     complete: bool = False
     message_text: Optional[str] = None
 
     @validator("start_time", pre=True)
     def to_datetime(cls, v):
-        print(v, type(v))
         if isinstance(v, str):
             dt = datetime.datetime.fromisoformat(v)
-            print(type(dt))
             return datetime.datetime.fromisoformat(v)
         return v
 
@@ -140,3 +139,7 @@ class Member(MemberBase):
 
 class Status(BaseModel):
     alive: bool = True
+
+
+class VotesResponse(BaseModel):
+    votes: list[Vote]

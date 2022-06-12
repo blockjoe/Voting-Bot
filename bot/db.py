@@ -43,16 +43,23 @@ class Vote(Base):
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
     vouches_required = Column(Integer, nullable=False)
+    votes = Column(Integer)
     complete = Column(Boolean)
 
     on_behalf_of = relationship("Member", back_populates="votes")
     vouches = relationship("Vouch", back_populates="vote")
 
     @property
-    def successful(self):
+    def failed(self):
         return (
-            len(self.vouches) >= self.vouches_required
+            self.votes < self.vouches_required
             and self.end_time < datetime.datetime.utcnow()
+        )
+
+    @property
+    def successful(self):
+        return self.votes >= self.vouches_required and (
+            self.end_time >= datetime.datetime.utcnow() or self.complete
         )
 
 
@@ -116,6 +123,8 @@ def get_vouch_event_by_ids(db, vouch: VouchEventBase):
 def delete_vouch_event(db, vouch: VouchEventBase):
     db_vouch = get_vouch_event_by_ids(db, vouch)
     if db_vouch:
+        db_vote = get_vote_by_id(db, db_vouch.vote.message_id)
+        db_vote.votes -= 1
         db.delete(db_vouch)
         db.commit()
         return True
@@ -124,10 +133,16 @@ def delete_vouch_event(db, vouch: VouchEventBase):
 
 def create_vouch_event(db, vouch: VouchEventBase):
     db_vouch = Vouch(**vouch.dict())
+    db_vote = get_vote_by_id(db, db_vouch.vote.message_id)
+    db_vote.votes += 1
     db.add(db_vouch)
     db.commit()
     db.refresh(db_vouch)
     return db_vouch
+
+
+def get_current_votes(db):
+    return db.query(Vote).filter(Vote.complete != True).all()
 
 
 def complete_vote(db, vote: Vote):

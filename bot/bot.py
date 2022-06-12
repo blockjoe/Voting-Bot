@@ -3,21 +3,30 @@ import os
 
 import aiohttp
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord.ext.commands import Context
 from dotenv import load_dotenv
 
-from .schemas import Status, MemberBase, VoteBase, VouchEventBase, VouchEvent
+from .schemas import (
+    Status,
+    MemberBase,
+    VoteBase,
+    Vote,
+    VouchEventBase,
+    VouchEvent,
+    VotesResponse,
+)
 
 intents = discord.Intents.all()
 client = commands.Bot(command_prefix="!", intents=intents)
 
 EXISTING_VOTER_ROLE_NAME = "Voter"
-VOUCHER_ROLE = "VouchedFor"
-VOUCHING_CHANNELS = [984952580130111498]
+VOUCHER_ROLE = "Verified"
+CAN_CALL_VERIFY_ROLE = "Trophied"
+VOUCHING_CHANNELS = [984295827868631060]
 VOTE_REACT = "✅"
-VOTE_DAYS = 7
 VOTE_PERCENT = 0.33
+VOTE_DAYS = 7
 
 
 def in_vouching_channel(message: discord.Message) -> bool:
@@ -43,13 +52,28 @@ async def get_voters(ctx) -> list[discord.Member]:
 async def send_not_authorized_to_vote_embed(
     reaction: discord.Reaction, user: discord.Member
 ):
-    embed = discord.Embed(title="Unauthroized vote removed")
+    embed = discord.Embed(title="Unauthorized vote removed")
     embed.description = (
         "The vote cast by {} was removed as they don't have the Voter Role".format(
             user.display_name
         )
     )
     await reaction.message.reply(embed=embed)
+
+
+async def send_vouch_failed_embed(vote: Vote):
+    channel = client.get_channel(VOUCHING_CHANNELS[0])
+    vote_message = await channel.fetch_message(vote.message_id)
+    embed = discord.Embed(
+        title="Verification for {} failed".format(vote.on_behalf_of.discord_name),
+        description="Only {} of the needed {} votes after {} days.".format(
+            vote.on_behalf_of.discord_name,
+            vote.votes,
+            vote.vouches_required,
+            vote.days,
+        ),
+    )
+    await vote_message.reply(embed=embed)
 
 
 async def send_already_vouched_for_embed(ctx: Context):
@@ -68,7 +92,7 @@ async def send_vote_embed(
     ctx: Context, votes_needed: int, votes_total: int
 ) -> discord.Message:
     embed = discord.Embed(
-        title="{} is seeking community verfication.".format(ctx.author.display_name)
+        title="{} is seeking community verification.".format(ctx.author.display_name)
     )
     embed.description = "Approval is needed from {} of {} available voters.".format(
         votes_needed, votes_total
@@ -109,10 +133,10 @@ async def attempt_to_start_vote(ctx: Context):
 
         voters = await get_voters(ctx)
         n_voters = len(voters)
-        votes_needed = int(VOTE_PERCENT * n_voters)
+        votes_needed = max(1, int(VOTE_PERCENT * n_voters))
         vote_message = await send_vote_embed(ctx, votes_needed, n_voters)
         vote = VoteBase(
-            message_id=vote_message.id,
+            message_id=str(vote_message.id),
             on_behalf_of_id=ctx.author.id,
             start_time=datetime.datetime.utcnow(),
             days=VOTE_DAYS,
@@ -139,15 +163,17 @@ async def is_message_active_vote(message: discord.Message) -> bool:
             if resp.status != 200:
                 return False
             vote = await resp.json()
-            return not vote.complete
+            return not vote["complete"]
 
 
 async def send_vouch_sucessful(member_id: str, message: discord.Message):
-    member = message.server.get_member(int(member_id))
+    member = await message.guild.fetch_member(int(member_id))
     embed = discord.Embed(
         title="Community Verification Successful for {}".format(member.display_name)
     )
     await message.reply(embed=embed)
+    role = discord.utils.get(message.guild.roles, name=VOUCHER_ROLE)
+    await member.add_roles(role)
 
 
 async def send_vouch_event(reaction: discord.Reaction, user: discord.Member):
@@ -210,6 +236,8 @@ async def on_reaction_remove(reaction: discord.Reaction, user: discord.Member):
         return
     is_vote = await is_message_active_vote(reaction.message)
     if is_vote:
+        if not is_voter(user):
+            return
         if not is_vote_reaction(reaction):
             return
         await send_vouch_revoked_event(reaction, user)
@@ -220,10 +248,25 @@ async def on_reaction_remove(reaction: discord.Reaction, user: discord.Member):
 async def verify(ctx: Context):
     if not in_vouching_channel(ctx.message):
         return
-    if is_vouched_for(ctx.author) or is_voter(ctx.author):
+    if is_vouched_for(ctx.author):
         await send_already_vouched_for_embed(ctx)
+        return
     await attempt_to_add_user(ctx.author)
     await attempt_to_start_vote(ctx)
+
+
+@tasks.loop(minutes=10)
+async def sweep_outstanding_votes():
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            "http://localhost:8000/outstanding-votes",
+            headers={"Content-Type": "application/json"},
+        ) as resp:
+            response = await resp.json()
+            votes = VotesResponse(**response.dict()).votes
+            for vote in votes:
+                if vote.complete:
+                    await send_vouch_failed_embed(vote)
 
 
 def main():

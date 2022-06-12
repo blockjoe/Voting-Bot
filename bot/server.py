@@ -1,4 +1,3 @@
-from discord import member
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.orm import Session
 
@@ -8,6 +7,7 @@ from .schemas import (
     MemberBase,
     Status,
     Vote,
+    VotesResponse,
     VouchEvent,
     VoteBase,
     VouchEventBase,
@@ -18,6 +18,7 @@ from .db import (
     engine,
     get_member_by_id,
     get_vote_by_id,
+    get_current_votes,
     create_member,
     create_vote,
     create_vouch_event,
@@ -96,6 +97,15 @@ async def add_vote(vote: VoteBase, db: Session = Depends(get_db)):
     return Vote.from_orm(db_vote)
 
 
+@app.get("/outstanding-votes", response_model=VotesResponse)
+async def get_outstanding_votes(db: Session = Depends(get_db)):
+    votes = get_current_votes(db)
+    for vote in votes:
+        if vote.failed:
+            complete_vote(db, vote)
+    return {"votes": [Vote.from_orm(vote) for vote in votes]}
+
+
 @app.post("/vouches", response_model=VouchEvent)
 async def get_vouch_event(vouch: VouchEventBase, db: Session = Depends(get_db)):
     vouch_db = get_vouch_event_by_ids(db, vouch)
@@ -112,6 +122,7 @@ async def get_vouch_event(vouch: VouchEventBase, db: Session = Depends(get_db)):
 @app.post("/vouch-event", response_model=VouchEvent)
 async def add_vouch_event(vouch: VouchEventBase, db: Session = Depends(get_db)):
     vouch_db = create_vouch_event(db, vouch)
+    print(vouch_db.vote.votes, vouch_db.vote.successful)
     if vouch_db.vote.successful:
         complete_vote(db, vouch_db.vote)
     return VouchEvent.from_orm(vouch_db)
