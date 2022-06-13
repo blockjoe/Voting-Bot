@@ -49,43 +49,54 @@ async def get_voters(ctx) -> list[discord.Member]:
     ]
 
 
-async def send_not_authorized_to_vote_embed(
+async def send_not_authorized_to_vote_reply(
     reaction: discord.Reaction, user: discord.Member
 ):
-    embed = discord.Embed(title="Unauthorized vote removed")
-    embed.description = (
-        "The vote cast by {} was removed as they don't have the Voter Role".format(
+    await reaction.message.reply(
+        "The vote cast by {} was removed as they don't have the Voter Role. Only Voters can verify community members.".format(
             user.display_name
         )
     )
-    await reaction.message.reply(embed=embed)
 
 
-async def send_vouch_failed_embed(vote: Vote):
+async def send_vouch_sucessful_reply(
+    member_id: str, message: discord.Message, votes: int
+):
+    member = await message.guild.fetch_member(int(member_id))
+    await message.reply(
+        "{} was successfully verified! They received {} approvals and are now one step closer to become a Voter...".format(
+            member.display_name, votes
+        )
+    )
+    role = discord.utils.get(message.guild.roles, name=VOUCHER_ROLE)
+    await member.add_roles(role)
+
+
+async def send_vouch_failed_reply(vote: Vote):
     channel = client.get_channel(VOUCHING_CHANNELS[0])
     vote_message = await channel.fetch_message(vote.message_id)
-    embed = discord.Embed(
-        title="Verification for {} failed".format(vote.on_behalf_of.discord_name),
-        description="Only {} of the needed {} votes after {} days.".format(
+    await vote_message.reply(
+        "{} has failed verification. Only {} of the needed {} votes after {} days.".format(
             vote.on_behalf_of.discord_name,
             vote.votes,
             vote.vouches_required,
             vote.days,
-        ),
+        )
     )
-    await vote_message.reply(embed=embed)
 
 
-async def send_already_vouched_for_embed(ctx: Context):
-    embed = discord.Embed(
-        title="{} is already vouched for".format(ctx.author.display_name)
+async def send_already_vouched_for_reply(ctx: Context):
+    await ctx.reply(
+        "You have already been verified, {}.".format(ctx.author.display_name)
     )
-    embed.description = "You have already been vouched for, no need to start a vote."
-    await ctx.send(embed=embed)
 
 
 async def send_vote_exists_message(vote: discord.Message):
-    await vote.reply("Verification vote is already in progress.")
+    await vote.reply(
+        "Your verification vote is already in progress, {}.".format(
+            vote.author.display_name
+        )
+    )
 
 
 async def send_vote_embed(
@@ -94,8 +105,8 @@ async def send_vote_embed(
     embed = discord.Embed(
         title="{} is seeking community verification.".format(ctx.author.display_name)
     )
-    embed.description = "Approval is needed from {} of {} available voters.".format(
-        votes_needed, votes_total
+    embed.description = "Approval is needed from {} of {} available voters in the next {} days. Voters, only click the {} if they have posted a selfie and filled out the required template for verification. Votes cast by anyone without the Voter role will be removed.".format(
+        votes_needed, votes_total, VOTE_DAYS, VOTE_REACT
     )
     vote = await ctx.reply(embed=embed)
     await vote.add_reaction(VOTE_REACT)
@@ -166,16 +177,6 @@ async def is_message_active_vote(message: discord.Message) -> bool:
             return not vote["complete"]
 
 
-async def send_vouch_sucessful(member_id: str, message: discord.Message):
-    member = await message.guild.fetch_member(int(member_id))
-    embed = discord.Embed(
-        title="Community Verification Successful for {}".format(member.display_name)
-    )
-    await message.reply(embed=embed)
-    role = discord.utils.get(message.guild.roles, name=VOUCHER_ROLE)
-    await member.add_roles(role)
-
-
 async def send_vouch_event(reaction: discord.Reaction, user: discord.Member):
     vouch = VouchEventBase(vote_id=reaction.message.id, voucher_id=user.id)
     async with aiohttp.ClientSession() as session:
@@ -187,7 +188,9 @@ async def send_vouch_event(reaction: discord.Reaction, user: discord.Member):
             vouch_data = await resp.json()
             vouch = VouchEvent(**vouch_data)
             if vouch.vote.complete:
-                await send_vouch_sucessful(vouch.vote.on_behalf_of_id, reaction.message)
+                await send_vouch_sucessful_reply(
+                    vouch.vote.on_behalf_of_id, reaction.message, vouch.vote.votes
+                )
 
 
 async def send_vouch_revoked_event(reaction: discord.Reaction, user: discord.Member):
