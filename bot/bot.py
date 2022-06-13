@@ -1,5 +1,6 @@
 import datetime
 import os
+from typing import List
 
 import aiohttp
 import discord
@@ -41,7 +42,7 @@ def is_vouched_for(user: discord.Member) -> bool:
     return VOUCHER_ROLE in [role.name for role in user.roles]
 
 
-async def get_voters(ctx) -> list[discord.Member]:
+async def get_voters(ctx) -> List[discord.Member]:
     return [
         member
         for member in ctx.guild.members
@@ -225,7 +226,7 @@ async def on_reaction_add(reaction: discord.Reaction, user: discord.Member):
             return
         if not is_voter(user):
             await reaction.message.remove_reaction(reaction, user)
-            await send_not_authorized_to_vote_embed(reaction, user)
+            await send_not_authorized_to_vote_reply(reaction, user)
             return
         await send_vouch_event(reaction, user)
     await attempt_to_add_user(user)
@@ -252,7 +253,7 @@ async def verify(ctx: Context):
     if not in_vouching_channel(ctx.message):
         return
     if is_vouched_for(ctx.author):
-        await send_already_vouched_for_embed(ctx)
+        await send_already_vouched_for_reply(ctx)
         return
     await attempt_to_add_user(ctx.author)
     await attempt_to_start_vote(ctx)
@@ -269,7 +270,7 @@ async def sweep_outstanding_votes():
             votes = VotesResponse(**response.dict()).votes
             for vote in votes:
                 if vote.complete:
-                    await send_vouch_failed_embed(vote)
+                    await send_vouch_failed_reply(vote)
 
 
 def main():

@@ -1,5 +1,5 @@
 import datetime
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseSettings, BaseModel, validator
 
 
@@ -9,7 +9,7 @@ class VouchConfiguration(BaseSettings):
     vouch_attempts_allowed: int = 3
     vouch_attempt_cooldown: datetime.timedelta = datetime.timedelta(days=7)
     vouch_duration: datetime.timedelta = datetime.timedelta(days=7)
-    in_channels: list[str]
+    in_channels: List[str]
     vouched_for_role: str
     voter_role: str
 
@@ -90,7 +90,7 @@ class VouchEventBase(BaseModel):
 
 class Vote(VoteBase):
     on_behalf_of: MemberBase
-    vouches: list[VouchEventBase]
+    vouches: List[VouchEventBase]
 
     @classmethod
     def from_orm(cls, db_model):
@@ -124,7 +124,7 @@ class VouchEvent(VouchEventBase):
 
 
 class Member(MemberBase):
-    votes: list[Vote]
+    votes: List[Vote]
 
     @classmethod
     def from_orm(cls, db_model):
@@ -142,4 +142,4 @@ class Status(BaseModel):
 
 
 class VotesResponse(BaseModel):
-    votes: list[Vote]
+    votes: List[Vote]
